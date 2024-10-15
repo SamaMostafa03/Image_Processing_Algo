@@ -1,81 +1,71 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <windows.h>
 
 #define THRESHOLD 128
-#define WHITE 255
+#define WHITE 200
 #define BLACK 0
 
+void showMessage(const char *message) {
+    MessageBox(NULL, message, "Info", MB_OK | MB_ICONINFORMATION);
+}
+
 int main() {
-    FILE *fIn = fopen("lena512.bmp", "rb"); // Input File
-    FILE *fOut = fopen("b_w.bmp", "wb");    // Output File
-    FILE *fTxtgray = fopen("pixel_values_grey.txt", "w"); // Text file to store original pixel values
-    FILE *fTxtbw = fopen("pixel_values_bw.txt", "w"); // Text file to store black and white pixel values
+    FILE *fIn = fopen("lena512.BMP", "rb");
+    FILE *fOut = fopen("b_w.BMP", "wb");
 
-    if (fIn == NULL) { // Check if the input file has been opened successfully
-        printf("Input file does not exist.\n");
+    if (fIn == NULL) {
+        showMessage("Input file does not exist.");
         return 1;
     }
 
-    if (fOut == NULL) { // Check if the output file can be opened
-        printf("Unable to open output file.\n");
-        return 1;
-    }
+    unsigned char header[54];
+    fread(header, sizeof(unsigned char), 54, fIn);
+    fwrite(header, sizeof(unsigned char), 54, fOut);
 
-    if (fTxtgray == NULL) { // Check if the text file can be opened
-        printf("Unable to create text file.\n");
-        return 1;
-    }
-
-    if (fTxtbw == NULL) { // Check if the text file can be opened
-        printf("Unable to create text file.\n");
-        return 1;
-    }
-
-    unsigned char header[54]; // To store the BMP header
-    fread(header, sizeof(unsigned char), 54, fIn); // Read the 54-byte header
-    fwrite(header, sizeof(unsigned char), 54, fOut); // Write the header to output file
-
-    // Extract image width, height, and bit depth from Bitmap Information Header
     int width = *(int*)&header[18];
     int height = *(int*)&header[22];
     int bitDepth = *(int*)&header[28];
 
-    printf("Width: %d\n", width);
-    printf("Height: %d\n", height);
-    printf("Bit Depth: %d\n", bitDepth);
-
-    // preserve the same color palette
     unsigned char colorTable[1024];
     if (bitDepth <= 8) {
         fread(colorTable, sizeof(unsigned char), 1024, fIn);
         fwrite(colorTable, sizeof(unsigned char), 1024, fOut);
     }
 
-    // Calculate image size (ignoring padding for simplicity, assumes no padding)
     int size = width * height;
     unsigned char *buffer = (unsigned char*)malloc(size * sizeof(unsigned char));
+    unsigned char *outputBuffer = (unsigned char*)malloc(size * sizeof(unsigned char));
 
-    // Read the pixel data
     fread(buffer, sizeof(unsigned char), size, fIn);
 
-    // Apply thresholding to convert to black and white
-    for (int i = 0; i < size; i++) {
-        // Write gray pixel values to the text file
-        fprintf(fTxtgray, "%d ", buffer[i]);
-        buffer[i] = (buffer[i] > THRESHOLD) ? WHITE : BLACK;
-        // Write black and white pixel values to the text file
-        fprintf(fTxtbw, "%d ", buffer[i]);
+    // Apply halftoning algorithm
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int i = y * width + x;
+            int oldPixel = buffer[i];
+            int newPixel = (oldPixel > THRESHOLD) ? WHITE : BLACK;
+            outputBuffer[i] = newPixel;
+            int error = oldPixel - newPixel;
+            // Distribute the error to the neighboring pixels
+            if (x + 1 < width) buffer[i + 1] += error * 0.2; // right
+            if (y + 1 < height) {
+                if (x > 0) buffer[i + width - 1] += error * 0.6; // bottom left
+                buffer[i + width] += error * 0.1; // bottom
+                if (x + 1 < width) buffer[i + width + 1] += error * 0.1; // bottom right
+            }
+        }
     }
 
-    // Write the modified pixel data to the output file
-    fwrite(buffer, sizeof(unsigned char), size, fOut);
+    fwrite(outputBuffer, sizeof(unsigned char), size, fOut);
 
-    // Close files and free memory
     fclose(fIn);
     fclose(fOut);
-    fclose(fTxtgray);
-    fclose(fTxtbw);
     free(buffer);
+    free(outputBuffer);
+
+    showMessage("Halftoning image processing completed successfully.");
 
     return 0;
 }
